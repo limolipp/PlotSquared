@@ -226,7 +226,7 @@ public class PaperListener implements Listener {
                     return;
                 }
             }
-            case "SPAWNER" -> {
+            case "SPAWNER", "BEEHIVE" -> {
                 if (!area.isMobSpawnerSpawning()) {
                     event.setShouldAbortSpawn(true);
                     event.setCancelled(true);
