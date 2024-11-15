@@ -384,7 +384,7 @@ public class BukkitPlotGenerator extends ChunkGenerator implements GeneratorWrap
     }
 
     public boolean shouldGenerateStructures() {
-        return true;
+        return false;
     }
 
     @Override
