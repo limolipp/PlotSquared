@@ -376,7 +376,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onVehicleEntityCollision(VehicleEntityCollisionEvent e) {
-        if (e.getVehicle().getType() == EntityType.BOAT) {
+        if (e.getVehicle() instanceof Boat) {
             Location location = BukkitUtil.adapt(e.getEntity().getLocation());
             if (location.isPlotArea()) {
                 if (e.getEntity() instanceof Player) {
@@ -593,7 +593,7 @@ public class PlayerEventListener implements Listener {
                     return;
                 }
                 Plot plot = area.getPlot(location);
-                if (plot != null) {
+                if (plot != null && !plot.equals(lastPlot)) {
                     final boolean result = DenyTeleportFlag.allowsTeleport(pp, plot);
                     // there is one possibility to still allow teleportation:
                     // to is identical to the plot's home location, and untrusted-visit is true
