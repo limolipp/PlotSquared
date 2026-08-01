@@ -191,7 +191,7 @@ public class EntityEventListener implements Listener {
                     return;
                 }
             }
-            case "SPAWNER" -> {
+            case "SPAWNER", "BEEHIVE" -> {
                 if (!area.isMobSpawnerSpawning()) {
                     event.setCancelled(true);
                     return;
@@ -267,7 +267,7 @@ public class EntityEventListener implements Listener {
         if (plot == null) {
             if (PlotFlagUtil.isAreaRoadFlagsAndFlagEquals(area, WeavingDeathPlace.class, false)) {
                 event.setCancelled(true);
-            }
+          }
             return;
         }
         if (!plot.getFlag(WeavingDeathPlace.class)) {
