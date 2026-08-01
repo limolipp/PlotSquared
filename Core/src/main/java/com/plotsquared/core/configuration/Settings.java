@@ -435,6 +435,11 @@ public class Settings extends Config {
 
         public static String SCHEMATICS = "schematics";
         public static String TEMPLATES = "templates";
+        @Comment({"If schematics used for generation should be searched for in the path.schematics location",
+                " - This setting exists and is `false` by default for backwards compatibility.",
+                " - If false then generation schematics must be located in `schematics`",
+                " - Schematics must still always be under GEN_ROAD_SCHEMATIC/<world> etc."})
+        public static boolean USE_SCHEMATICS_PATH_FOR_GEN_SCHEMATICS = false;
 
     }
 
@@ -582,6 +587,8 @@ public class Settings extends Config {
         public static boolean PER_WORLD_VISIT = false;
         @Comment("Search merged plots for having multiple owners when using the visit command")
         public static boolean VISIT_MERGED_OWNERS = true;
+        @Comment("Allows to teleport based on block size instead to spawn on the highest block at the home command")
+        public static boolean SIZED_BASED = true;
 
     }
 

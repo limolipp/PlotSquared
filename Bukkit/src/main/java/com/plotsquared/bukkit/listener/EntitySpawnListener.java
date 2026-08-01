@@ -20,19 +20,21 @@ package com.plotsquared.bukkit.listener;
 
 import com.plotsquared.bukkit.util.BukkitEntityUtil;
 import com.plotsquared.bukkit.util.BukkitUtil;
+import com.plotsquared.bukkit.util.PaperSupport;
 import com.plotsquared.core.PlotSquared;
 import com.plotsquared.core.configuration.Settings;
 import com.plotsquared.core.location.Location;
 import com.plotsquared.core.plot.Plot;
 import com.plotsquared.core.plot.PlotArea;
 import com.plotsquared.core.plot.flag.implementations.DoneFlag;
-import io.papermc.lib.PaperLib;
 import org.bukkit.Chunk;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.EnderCrystal;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Vehicle;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -97,7 +99,7 @@ public class EntitySpawnListener implements Listener {
                         }
                         try {
                             ignoreTP = true;
-                            PaperLib.teleportAsync(entity, origin);
+                            PaperSupport.teleportAsync(entity, origin);
                         } finally {
                             ignoreTP = false;
                         }
@@ -123,7 +125,7 @@ public class EntitySpawnListener implements Listener {
         if (!location.isPlotArea() || area == null) {
             return;
         }
-        if (PaperLib.isPaper()) {
+        if (PaperSupport.isPaper()) {
             //noinspection ConstantValue - getEntitySpawnReason annotated as NotNull, but is not NotNull. lol.
             if (area.isSpawnCustom() && entity.getEntitySpawnReason() != null && "CUSTOM".equals(entity.getEntitySpawnReason().name())) {
                 return;
@@ -132,7 +134,7 @@ public class EntitySpawnListener implements Listener {
         Plot plot = location.getOwnedPlotAbs();
         EntityType type = entity.getType();
         if (plot == null) {
-            if (type == EntityType.DROPPED_ITEM) {
+            if (entity instanceof Item) {
                 if (Settings.Enabled_Components.KILL_ROAD_ITEMS) {
                     event.setCancelled(true);
                 }
@@ -154,7 +156,7 @@ public class EntitySpawnListener implements Listener {
         if (Settings.Done.RESTRICT_BUILDING && DoneFlag.isDone(plot)) {
             event.setCancelled(true);
         }
-        if (type == EntityType.ENDER_CRYSTAL || type == EntityType.ARMOR_STAND) {
+        if (entity instanceof EnderCrystal || type == EntityType.ARMOR_STAND) {
             if (BukkitEntityUtil.checkEntity(entity, plot)) {
                 event.setCancelled(true);
             }

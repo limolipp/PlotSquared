@@ -24,6 +24,7 @@ import com.google.inject.Inject;
 import com.plotsquared.bukkit.player.BukkitPlayer;
 import com.plotsquared.bukkit.util.BukkitEntityUtil;
 import com.plotsquared.bukkit.util.BukkitUtil;
+import com.plotsquared.bukkit.util.PaperSupport;
 import com.plotsquared.bukkit.util.UpdateUtility;
 import com.plotsquared.core.PlotSquared;
 import com.plotsquared.core.configuration.Settings;
@@ -64,12 +65,15 @@ import com.plotsquared.core.plot.flag.implementations.PreventCreativeCopyFlag;
 import com.plotsquared.core.plot.flag.implementations.TamedInteractFlag;
 import com.plotsquared.core.plot.flag.implementations.TileDropFlag;
 import com.plotsquared.core.plot.flag.implementations.UntrustedVisitFlag;
+import com.plotsquared.core.plot.flag.implementations.UseFlag;
 import com.plotsquared.core.plot.flag.implementations.VehicleBreakFlag;
 import com.plotsquared.core.plot.flag.implementations.VehicleUseFlag;
 import com.plotsquared.core.plot.flag.implementations.VillagerInteractFlag;
+import com.plotsquared.core.plot.flag.types.BlockTypeWrapper;
 import com.plotsquared.core.plot.world.PlotAreaManager;
 import com.plotsquared.core.util.EventDispatcher;
 import com.plotsquared.core.util.MathMan;
+import com.plotsquared.core.util.MinecraftVersion;
 import com.plotsquared.core.util.PlotFlagUtil;
 import com.plotsquared.core.util.PremiumVerification;
 import com.plotsquared.core.util.entity.EntityCategories;
@@ -77,8 +81,9 @@ import com.plotsquared.core.util.task.TaskManager;
 import com.plotsquared.core.util.task.TaskTime;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
+import com.sk89q.worldedit.util.Enums;
 import com.sk89q.worldedit.world.block.BlockType;
-import io.papermc.lib.PaperLib;
+import com.sk89q.worldedit.world.block.BlockTypes;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.Tag;
@@ -88,10 +93,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Sign;
-import org.bukkit.block.data.Waterlogged;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Boat;
@@ -154,9 +157,12 @@ import org.bukkit.util.Vector;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -180,7 +186,17 @@ public class PlayerEventListener implements Listener {
             Material.WRITABLE_BOOK,
             Material.WRITTEN_BOOK
     );
+
+    /**
+     * The correct EntityType for End Crystal, determined once at class loading time.
+     * Tries END_CRYSTAL first (1.21+), falls back to ENDER_CRYSTAL (1.20.4 and older).
+     */
+    private static final EntityType END_CRYSTAL_ENTITY_TYPE = Objects.requireNonNull(
+            Enums.findByValue(EntityType.class, "END_CRYSTAL", "ENDER_CRYSTAL")
+    );
+
     private static final Set<String> DYES;
+
     static {
         Set<String> mutableDyes = new HashSet<>(Set.of(
                 "WHITE_DYE",
@@ -201,8 +217,7 @@ public class PlayerEventListener implements Listener {
                 "PINK_DYE",
                 "GLOW_INK_SAC"
         ));
-        int[] version = PlotSquared.platform().serverVersion();
-        if (version[1] >= 20) {
+        if (MinecraftVersion.current().isNewerOrEqualThan(MinecraftVersion.TRAILS_AND_TALES)) {
             mutableDyes.add("HONEYCOMB");
         }
         DYES = Set.copyOf(mutableDyes);
@@ -215,7 +230,7 @@ public class PlayerEventListener implements Listener {
         // "temporary" fix for https://hub.spigotmc.org/jira/browse/SPIGOT-7813
         // can (and should) be removed when 1.21 support is dropped
         // List of all interactable 1.21 materials
-        INTERACTABLE_MATERIALS = Material.CHEST.isInteractable() ? null :  Set.of(
+        INTERACTABLE_MATERIALS = Material.CHEST.isInteractable() ? null : Set.of(
                 "REDSTONE_ORE", "DEEPSLATE_REDSTONE_ORE", "CHISELED_BOOKSHELF", "DECORATED_POT", "CHEST", "CRAFTING_TABLE",
                 "FURNACE", "JUKEBOX", "OAK_FENCE", "SPRUCE_FENCE", "BIRCH_FENCE", "JUNGLE_FENCE", "ACACIA_FENCE", "CHERRY_FENCE",
                 "DARK_OAK_FENCE", "MANGROVE_FENCE", "BAMBOO_FENCE", "CRIMSON_FENCE", "WARPED_FENCE", "PUMPKIN",
@@ -339,7 +354,8 @@ public class PlayerEventListener implements Listener {
                     }
                     return;
                 }
-                if (plot.isAdded(event.getPlayer().getUniqueId())) {
+                BukkitPlayer player = BukkitUtil.adapt(event.getPlayer());
+                if (plot.isAdded(player.getUUID())) {
                     return; // allow for added players
                 }
                 if (!plot.getFlag(EditSignFlag.class)
@@ -376,7 +392,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onVehicleEntityCollision(VehicleEntityCollisionEvent e) {
-        if (e.getVehicle().getType() == EntityType.BOAT) {
+        if (e.getVehicle() instanceof Boat) {
             Location location = BukkitUtil.adapt(e.getEntity().getLocation());
             if (location.isPlotArea()) {
                 if (e.getEntity() instanceof Player) {
@@ -533,12 +549,14 @@ public class PlayerEventListener implements Listener {
         // Delayed
 
         // Async
-        TaskManager.runTaskLaterAsync(() -> {
-            if (!player.hasPlayedBefore() && player.isOnline()) {
-                player.saveData();
-            }
-            this.eventDispatcher.doJoinTask(pp);
-        }, TaskTime.seconds(1L));
+        TaskManager.runTaskLaterAsync(
+                () -> {
+                    if (!player.hasPlayedBefore() && player.isOnline()) {
+                        player.saveData();
+                    }
+                    this.eventDispatcher.doJoinTask(pp);
+                }, TaskTime.seconds(1L)
+        );
 
         if (pp.hasPermission(Permission.PERMISSION_ADMIN_UPDATE_NOTIFICATION.toString()) && Settings.Enabled_Components.UPDATE_NOTIFICATIONS
                 && PremiumVerification.isPremium() && UpdateUtility.hasUpdate) {
@@ -583,7 +601,7 @@ public class PlayerEventListener implements Listener {
                 PlotArea area = location.getPlotArea();
                 if (area == null) {
                     if (lastPlot != null) {
-                        plotListener.plotExit(pp, lastPlot);
+                        plotListener.plotExit(pp, lastPlot, null, null);
                         lastPlotAccess.remove();
                     }
                     try (final MetaDataAccess<Location> lastLocationAccess =
@@ -593,14 +611,20 @@ public class PlayerEventListener implements Listener {
                     return;
                 }
                 Plot plot = area.getPlot(location);
-                if (plot != null) {
+                if (plot != null && !plot.equals(lastPlot)) {
                     final boolean result = DenyTeleportFlag.allowsTeleport(pp, plot);
                     // there is one possibility to still allow teleportation:
                     // to is identical to the plot's home location, and untrusted-visit is true
                     // i.e. untrusted-visit can override deny-teleport
                     // this is acceptable, because otherwise it wouldn't make sense to have both flags set
-                    if (result || (plot.getFlag(UntrustedVisitFlag.class) && plot.getHomeSynchronous().equals(BukkitUtil.adaptComplete(to)))) {
-                        plotListener.plotEntry(pp, plot);
+                    if (result || (plot.getFlag(UntrustedVisitFlag.class) && plot
+                            .getHomeSynchronous()
+                            .equals(BukkitUtil.adaptComplete(to)))) {
+                        // returns false if the player is not allowed to enter the plot (if they are denied, for example)
+                        // don't let the move event cancel the entry after teleport, but rather catch and cancel early (#4647)
+                        if (!plotListener.plotEntry(pp, plot)) {
+                            event.setCancelled(true);
+                        }
                     } else {
                         pp.sendMessage(
                                 TranslatableCaption.of("deny.no_enter"),
@@ -668,7 +692,7 @@ public class PlayerEventListener implements Listener {
                     if (dest != null) {
                         vehicle.eject();
                         vehicle.setVelocity(new Vector(0d, 0d, 0d));
-                        PaperLib.teleportAsync(vehicle, dest);
+                        PaperSupport.teleportAsync(vehicle, dest);
                         passengers.forEach(vehicle::addPassenger);
                         return;
                     }
@@ -730,7 +754,7 @@ public class PlayerEventListener implements Listener {
             if (now == null) {
                 try (final MetaDataAccess<Boolean> kickAccess =
                              pp.accessTemporaryMetaData(PlayerMetaDataKeys.TEMPORARY_KICK)) {
-                    if (lastPlot != null && !plotListener.plotExit(pp, lastPlot) && this.tmpTeleport && !kickAccess.get().orElse(
+                    if (lastPlot != null && !plotListener.plotExit(pp, lastPlot, now, area) && this.tmpTeleport && !kickAccess.get().orElse(
                             false)) {
                         pp.sendMessage(
                                 TranslatableCaption.of("permission.no_permission_event"),
@@ -824,7 +848,7 @@ public class PlayerEventListener implements Listener {
             if (plot == null) {
                 try (final MetaDataAccess<Boolean> kickAccess =
                              pp.accessTemporaryMetaData(PlayerMetaDataKeys.TEMPORARY_KICK)) {
-                    if (lastPlot != null && !plotListener.plotExit(pp, lastPlot) && this.tmpTeleport && !kickAccess.get().orElse(
+                    if (lastPlot != null && !plotListener.plotExit(pp, lastPlot, null, area) && this.tmpTeleport && !kickAccess.get().orElse(
                             false)) {
                         pp.sendMessage(
                                 TranslatableCaption.of("permission.no_permission_event"),
@@ -939,12 +963,15 @@ public class PlayerEventListener implements Listener {
         builder.tag("plot_id", Tag.inserting(Component.text(id.toString())));
         builder.tag("sender", Tag.inserting(Component.text(sender)));
         if (plotPlayer.hasPermission("plots.chat.color")) {
-            builder.tag("msg", Tag.inserting(MiniMessage.miniMessage().deserialize(
-                    message,
-                    TagResolver.resolver(StandardTags.color(), StandardTags.gradient(),
-                            StandardTags.rainbow(), StandardTags.decorations()
-                    )
-            )));
+            builder.tag(
+                    "msg", Tag.inserting(MiniMessage.miniMessage().deserialize(
+                            message,
+                            TagResolver.resolver(
+                                    StandardTags.color(), StandardTags.gradient(),
+                                    StandardTags.rainbow(), StandardTags.decorations()
+                            )
+                    ))
+            );
         } else {
             builder.tag("msg", Tag.inserting(Component.text(message)));
         }
@@ -1253,7 +1280,9 @@ public class PlayerEventListener implements Listener {
                 eventType = PlayerBlockEventType.INTERACT_BLOCK;
                 blocktype1 = BukkitAdapter.asBlockType(block.getType());
 
-                if (INTERACTABLE_MATERIALS != null ? INTERACTABLE_MATERIALS.contains(blockType.name()) : blockType.isInteractable()) {
+                if (INTERACTABLE_MATERIALS != null
+                        ? INTERACTABLE_MATERIALS.contains(blockType.name())
+                        : blockType.isInteractable()) {
                     if (!player.isSneaking()) {
                         break;
                     }
@@ -1271,7 +1300,7 @@ public class PlayerEventListener implements Listener {
                 // in the following, lb needs to have the material of the item in hand i.e. type
                 switch (type.toString()) {
                     case "REDSTONE", "STRING", "PUMPKIN_SEEDS", "MELON_SEEDS", "COCOA_BEANS", "WHEAT_SEEDS", "BEETROOT_SEEDS",
-                            "SWEET_BERRIES", "GLOW_BERRIES" -> {
+                         "SWEET_BERRIES", "GLOW_BERRIES" -> {
                         return;
                     }
                     default -> {
@@ -1281,7 +1310,7 @@ public class PlayerEventListener implements Listener {
                         }
                     }
                 }
-                if (PaperLib.isPaper()) {
+                if (PaperSupport.isPaper()) {
                     if (MaterialTags.SPAWN_EGGS.isTagged(type) || Material.EGG.equals(type)) {
                         eventType = PlayerBlockEventType.SPAWN_MOB;
                         break;
@@ -1296,6 +1325,17 @@ public class PlayerEventListener implements Listener {
                     //Allow all players to eat while also allowing the block place event to be fired
                     return;
                 }
+                // Process creature spawning of armor stands & end crystals here if spawned by the player in order to be able to
+                // reset the player's hand item if spawning needs to be cancelled.
+                if (type == Material.ARMOR_STAND || type == Material.END_CRYSTAL) {
+                    Plot plot = location.getOwnedPlotAbs();
+                    EntityType entityType = type == Material.ARMOR_STAND ? EntityType.ARMOR_STAND : END_CRYSTAL_ENTITY_TYPE;
+                    if (BukkitEntityUtil.checkEntity(entityType, plot)) {
+                        event.setCancelled(true);
+                        break;
+                    }
+                }
+                // Continue with normal place event checks
                 if (type == Material.ARMOR_STAND) {
                     location = BukkitUtil.adapt(block.getRelative(event.getBlockFace()).getLocation());
                     eventType = PlayerBlockEventType.PLACE_MISC;
@@ -1370,22 +1410,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBucketEmpty(PlayerBucketEmptyEvent event) {
-        BlockFace bf = event.getBlockFace();
-        // Note: a month after Bukkit 1.14.4 released, they added the API method
-        // PlayerBucketEmptyEvent#getBlock(), which returns the block the
-        // bucket contents is going to be placed at. Currently we determine this
-        // block ourselves to retain compatibility with 1.13.
-        final Block block;
-        // if the block can be waterlogged, the event might waterlog the block
-        // sometimes
-        if (event.getBlockClicked().getBlockData() instanceof Waterlogged waterlogged
-                && !waterlogged.isWaterlogged() && event.getBucket() != Material.LAVA_BUCKET) {
-            block = event.getBlockClicked();
-        } else {
-            block = event.getBlockClicked().getLocation()
-                    .add(bf.getModX(), bf.getModY(), bf.getModZ())
-                    .getBlock();
-        }
+        final Block block = event.getBlock();
         Location location = BukkitUtil.adapt(block.getLocation());
         PlotArea area = location.getPlotArea();
         if (area == null) {
@@ -1393,6 +1418,16 @@ public class PlayerEventListener implements Listener {
         }
         BukkitPlayer pp = BukkitUtil.adapt(event.getPlayer());
         Plot plot = area.getPlot(location);
+        final List<BlockTypeWrapper> use =
+                Optional.ofNullable(plot).map(p -> p.getFlag(UseFlag.class)).orElse(area.isRoadFlags() ?
+                        area.getFlag(UseFlag.class) : Collections.emptyList());
+        BlockType type = BukkitAdapter.asBlockType(block.getType());
+        for (final BlockTypeWrapper blockTypeWrapper : use) {
+            if (blockTypeWrapper.accepts(BlockTypes.AIR) || blockTypeWrapper
+                    .accepts(type)) {
+                return;
+            }
+        }
         if (plot == null) {
             if (pp.hasPermission(Permission.PERMISSION_ADMIN_BUILD_ROAD)) {
                 return;
@@ -1464,6 +1499,16 @@ public class PlayerEventListener implements Listener {
         Player player = event.getPlayer();
         BukkitPlayer plotPlayer = BukkitUtil.adapt(player);
         Plot plot = area.getPlot(location);
+        final List<BlockTypeWrapper> use =
+                Optional.ofNullable(plot).map(p -> p.getFlag(UseFlag.class)).orElse(area.isRoadFlags() ?
+                        area.getFlag(UseFlag.class) : Collections.emptyList());
+        BlockType type = BukkitAdapter.asBlockType(blockClicked.getType());
+        for (final BlockTypeWrapper blockTypeWrapper : use) {
+            if (blockTypeWrapper.accepts(BlockTypes.AIR) || blockTypeWrapper
+                    .accepts(type)) {
+                return;
+            }
+        }
         if (plot == null) {
             if (plotPlayer.hasPermission(Permission.PERMISSION_ADMIN_BUILD_ROAD)) {
                 return;
